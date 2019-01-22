@@ -47,31 +47,119 @@ MACRO (CHANGE_SSL_SETTINGS string)
   SET(WITH_SSL ${string} CACHE STRING ${WITH_SSL_DOC} FORCE)
 ENDMACRO()
 
-MACRO (MYSQL_USE_BUNDLED_SSL)
-  SET(INC_DIRS 
-    ${CMAKE_SOURCE_DIR}/extra/yassl/include
-    ${CMAKE_SOURCE_DIR}/extra/yassl/taocrypt/include
+INCLUDE(ExternalProject)
+
+set(LIBRESSL_VERSION "2.7.5")
+set(LIBRESSL_HTTP_URL http://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-${LIBRESSL_VERSION}.tar.gz)
+
+MACRO (ADD_EXTERNAL_PROJECT_LIBRESSL)
+  if(MSVC)
+    set(LIBRESSL_EXTRA_CMAKE_C_FLAGS " /wd4152 /wd4701 /wd4702 /wd4090 /wd4295 /wd4132 /wd4204 /wd4206")
+  endif()
+  if(UNIX)
+    set(PIC_FLAG -fPIC)
+  else()
+    set(PIC_FLAG)
+  endif()
+  set(LIBRESSL_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/libressl-install")
+  set(LIBRESSL_LOCAL_URL ${CMAKE_SOURCE_DIR}/thirdparty/libressl-${LIBRESSL_VERSION})
+  if(EXISTS ${LIBRESSL_LOCAL_URL})
+    set(LIBRESSL_URL ${LIBRESSL_LOCAL_URL})
+  else()
+    set(LIBRESSL_URL ${LIBRESSL_HTTP_URL})
+  endif()
+  get_property(_GENERATOR_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+  if(_GENERATOR_IS_MULTI_CONFIG)
+    SET(flags 
+     CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_MINSIZEREL
+     CMAKE_C_FLAGS
+     )
+  else()
+    SET(flags CMAKE_C_FLAGS)
+  endif()
+  set(CFLAGS_ARG)
+  foreach(f ${flags})
+    set(name ${f})
+    set(val ${${f}})
+    if(MSVC)
+      string(REGEX REPLACE "/we[0-9]+" "" "val" ${val})
+      string(REGEX REPLACE "[/-]WX" "" "val" "${val}")
+      string(REGEX REPLACE "[/-]Werror" "" "val" "${val}")
+	  string(REGEX REPLACE "/DWIN32 /D_WINDOWS /W3" "" "val" "${val}")
+    else()
+      string(REGEX REPLACE "-Werror" "" "val" "${val}")
+    endif()
+	IF(MSVC AND (CMAKE_CXX_COMPILER_ID MATCHES Clang))
+	  MESSAGE("CLANG_CL_FLAGS= ${CLANG_CL_FLAGS}")
+	  string(REPLACE "${CLANG_CL_FLAGS}" "" "val" "${val}")
+	ENDIF()
+    list(APPEND CFLAGS_ARG "-D${name}=${val}${LIBRESSL_EXTRA_${name}}")
+  endforeach()
+  IF(MSVC)
+    SET(PATCH_COMMAND PATCH_COMMAND
+     ${CMAKE_COMMAND} -E chdir
+     ${CMAKE_CURRENT_BINARY_DIR}/thirdparty/libressl-prefix/src/libressl/include/openssl
+     powershell -Command "(gc x509.h) -replace '#pragma message', '//#pragma message' | Out-File -Encoding ASCII  x509.h")
+  ENDIF()
+  
+  set(byproducts)
+  foreach(lib crypto ssl)
+    add_library(${lib} STATIC IMPORTED)
+	set(loc "${LIBRESSL_INSTALL_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}${lib}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    set_target_properties(${lib} PROPERTIES IMPORTED_LOCATION ${loc})
+    if(CMAKE_VERSION VERSION_GREATER "3.1")
+      SET(byproducts ${byproducts} BUILD_BYPRODUCTS ${loc})
+    endif()
+    add_dependencies(${lib} libressl)
+  endforeach()
+  IF(MSVC AND (CMAKE_CXX_COMPILER_ID MATCHES Clang) AND (NOT CMAKE_GENERATOR MATCHES "Visual Studio"))
+   # workaround a bug
+   list(APPEND CFLAGS_ARG "-DCMAKE_C_COMPILER=cl" "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
+  ENDIF()
+  ExternalProject_Add(libressl
+    PREFIX "thirdparty/libressl-prefix"
+    URL ${LIBRESSL_URL}
+    ${PATCH_COMMAND}
+	${byproducts}
+    CMAKE_ARGS
+    -Wno-dev
+    "-DLIBRESSL_TESTS=OFF"
+    "-DLIBRESSL_APPS=OFF"
+    "-DCMAKE_INSTALL_PREFIX=${LIBRESSL_INSTALL_DIR}"
+	${CFLAGS_ARG}
+	${LIBRESSL_CMAKE_CONFIG}
+	${LIBRESSL_CMAKE_GENERATOR}
+	${LIBRESSL_CMAKE_BUILD_COMMAND}
   )
-  SET(SSL_LIBRARIES  yassl taocrypt)
-  SET(SSL_INCLUDE_DIRS ${INC_DIRS})
-  SET(SSL_INTERNAL_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/extra/yassl/taocrypt/mySTL)
-  SET(SSL_DEFINES "-DHAVE_YASSL -DYASSL_PREFIX -DHAVE_OPENSSL -DMULTI_THREADED")
-  SET(HAVE_ERR_remove_thread_state OFF CACHE INTERNAL "yassl doesn't have ERR_remove_thread_state")
-  SET(HAVE_EncryptAes128Ctr OFF CACHE INTERNAL "yassl doesn't support AES-CTR")
-  SET(HAVE_EncryptAes128Gcm OFF CACHE INTERNAL "yassl doesn't support AES-GCM")
-  CHANGE_SSL_SETTINGS("bundled")
-  ADD_SUBDIRECTORY(extra/yassl)
-  ADD_SUBDIRECTORY(extra/yassl/taocrypt)
-  GET_TARGET_PROPERTY(src yassl SOURCES)
-  FOREACH(file ${src})
-    SET(SSL_SOURCES ${SSL_SOURCES} ${CMAKE_SOURCE_DIR}/extra/yassl/${file})
-  ENDFOREACH()
-  GET_TARGET_PROPERTY(src taocrypt SOURCES)
-  FOREACH(file ${src})
-    SET(SSL_SOURCES ${SSL_SOURCES}
-      ${CMAKE_SOURCE_DIR}/extra/yassl/taocrypt/${file})
-  ENDFOREACH()
-  MESSAGE_ONCE(SSL_LIBRARIES "SSL_LIBRARIES = ${SSL_LIBRARIES}")
+
+  if (LIBRT)
+    set_target_properties(crypto PROPERTIES INTERFACE_LINK_LIBRARIES  ${LIBRT})
+  endif()
+  set_target_properties(ssl PROPERTIES INTERFACE_LINK_LIBRARIES crypto)
+
+  if (NOT OPENSSL_FOUND)
+    UNSET(OPENSSL_FOUND  CACHE)
+    UNSET(OPENSSL_INCLUDE_DIR CACHE)
+    UNSET(OPENSSL_INCLUDE_DIRS CACHE)
+    UNSET(OPENSSL_SSL_LIBRARY CACHE)
+    UNSET(OPENSSL_CRYPTO_LIBRARY CACHE)
+    UNSET(OPENSSL_LIBRARIES CACHE)
+  endif()
+
+  set(OPENSSL_FOUND TRUE CACHE BOOL "")
+  set(OPENSSL_ROOT_DIR  "${LIBRESSL_INSTALL_DIR}" CACHE BOOL "")
+  set(OPENSSL_INCLUDE_DIR "${LIBRESSL_INSTALL_DIR}/include" CACHE STRING "")
+  set(OPENSSL_LIBRARIES ssl crypto ${LIBRT}  CACHE STRING "")
+  set(HAVE_EVP_aes_128_ctr  TRUE CACHE  BOOL "")
+  set(HAVE_EVP_aes_128_ctr  TRUE CACHE  BOOL "")
+  set(SSL_LIBRARIES ${OPENSSL_LIBRARIES} CACHE STRING "")
+  set(SSL_INCLUDE_DIRS ${OPENSSL_INCLUDE_DIR})
+  set(SSL_INTERNAL_INCLUDE_DIRS "")
+  set(SSL_DEFINES "-DHAVE_OPENSSL")
+ENDMACRO()
+
+MACRO (MYSQL_USE_BUNDLED_SSL)
+  ADD_EXTERNAL_PROJECT_LIBRESSL()
 ENDMACRO()
 
 # MYSQL_CHECK_SSL
@@ -95,27 +183,6 @@ MACRO (MYSQL_CHECK_SSL)
 
   IF(WITH_SSL STREQUAL "bundled")
     MYSQL_USE_BUNDLED_SSL()
-    # Reset some variables, in case we switch from /path/to/ssl to "bundled".
-    IF (WITH_SSL_PATH)
-      UNSET(WITH_SSL_PATH)
-      UNSET(WITH_SSL_PATH CACHE)
-    ENDIF()
-    IF (OPENSSL_ROOT_DIR)
-      UNSET(OPENSSL_ROOT_DIR)
-      UNSET(OPENSSL_ROOT_DIR CACHE)
-    ENDIF()
-    IF (OPENSSL_INCLUDE_DIR)
-      UNSET(OPENSSL_INCLUDE_DIR)
-      UNSET(OPENSSL_INCLUDE_DIR CACHE)
-    ENDIF()
-    IF (WIN32 AND OPENSSL_APPLINK_C)
-      UNSET(OPENSSL_APPLINK_C)
-      UNSET(OPENSSL_APPLINK_C CACHE)
-    ENDIF()
-    IF (OPENSSL_SSL_LIBRARY)
-      UNSET(OPENSSL_SSL_LIBRARY)
-      UNSET(OPENSSL_SSL_LIBRARY CACHE)
-    ENDIF()
   ELSEIF(WITH_SSL STREQUAL "system" OR
          WITH_SSL STREQUAL "yes" OR
          WITH_SSL_PATH
