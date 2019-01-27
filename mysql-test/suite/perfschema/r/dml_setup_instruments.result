@@ -19,10 +19,10 @@ where name like 'Wait/Synch/Rwlock/sql/%'
   and name not in ('wait/synch/rwlock/sql/CRYPTO_dynlock_value::lock')
 order by name limit 10;
 NAME	ENABLED	TIMED
+wait/synch/rwlock/sql/LOCK_all_status_vars	YES	YES
 wait/synch/rwlock/sql/LOCK_dboptions	YES	YES
 wait/synch/rwlock/sql/LOCK_grant	YES	YES
 wait/synch/rwlock/sql/LOCK_SEQUENCE	YES	YES
-wait/synch/rwlock/sql/LOCK_show_status	YES	YES
 wait/synch/rwlock/sql/LOCK_ssl_refresh	YES	YES
 wait/synch/rwlock/sql/LOCK_system_variables_hash	YES	YES
 wait/synch/rwlock/sql/LOCK_sys_init_connect	YES	YES
