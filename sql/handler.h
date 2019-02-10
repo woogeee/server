@@ -1913,6 +1913,11 @@ enum enum_stats_auto_recalc { HA_STATS_AUTO_RECALC_DEFAULT= 0,
                               HA_STATS_AUTO_RECALC_ON,
                               HA_STATS_AUTO_RECALC_OFF };
 
+enum sample_mode {
+  HA_SAMPLE_BERNOULLI= 0,
+  HA_SAMPLE_SYSTEM
+};
+
 /**
   A helper struct for schema DDL statements:
     CREATE SCHEMA [IF NOT EXISTS] name [ schema_specification... ]
@@ -2947,9 +2952,11 @@ public:
   /** Length of ref (1-8 or the clustered key length) */
   uint ref_length;
   FT_INFO *ft_handler;
-  enum init_stat { NONE=0, INDEX, RND };
+  enum init_stat { NONE=0, INDEX, RND, SAMPLE };
   init_stat inited, pre_inited;
 
+  double sample_fraction= 0;
+  enum sample_mode sample_mode;
   const COND *pushed_cond;
   /**
     next_insert_id is the next value which should be inserted into the
@@ -3111,6 +3118,31 @@ public:
   { return 0; }
   virtual int prepare_range_scan(const key_range *start_key, const key_range *end_key)
   { return 0; }
+
+  int ha_random_sample_init(THD *thd, enum sample_mode mode, double fraction)
+    __attribute__((warn_unused_result))
+  {
+    DBUG_ENTER("ha_random_sample_init");
+    DBUG_ASSERT(inited==NONE);
+    int result;
+    sample_mode= mode;
+    sample_fraction= fraction;
+    inited= (result= random_sample_init(mode, fraction)) ? NONE : SAMPLE;
+    DBUG_RETURN(result);
+  }
+  int ha_random_sample(uchar *buf)
+    __attribute__((warn_unused_result))
+  {
+    DBUG_ENTER("ha_random_sample");
+    DBUG_ASSERT(inited == SAMPLE);
+    DBUG_RETURN(random_sample(buf));
+  }
+  int ha_random_sample_end()
+  {
+    DBUG_ENTER("ha_random_sample_end");
+    inited= NONE;
+    DBUG_RETURN(random_sample_end());
+  }
 
   int ha_rnd_init(bool scan) __attribute__ ((warn_unused_result))
   {
@@ -4425,6 +4457,12 @@ private:
   /* Note: ha_index_read_idx_map() may bypass index_init() */
   virtual int index_init(uint idx, bool sorted) { return 0; }
   virtual int index_end() { return 0; }
+  virtual int random_sample_init(enum sample_mode mode, double fraction)
+  {
+    return rnd_init(TRUE);
+  }
+  virtual int random_sample(uchar *buf);
+  virtual int random_sample_end() { return rnd_end(); }
   /**
     rnd_init() can be called two times without rnd_end() in between
     (it only makes sense if scan=1).

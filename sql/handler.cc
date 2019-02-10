@@ -7547,3 +7547,17 @@ bool Vers_parse_info::check_sys_fields(const Lex_table_name &table_name,
            "ROW END" : found_flag ? "ROW START" : "ROW START/END");
   return true;
 }
+
+int handler::random_sample(uchar *buf)
+{
+  int rc;
+  THD *thd= ha_thd();
+  do
+  {
+    if (table->in_use->check_killed(1))
+      return HA_ERR_ABORTED_BY_USER;
+    rc= rnd_next(buf);
+  } while (rc == HA_ERR_RECORD_DELETED || thd_rnd(thd) > sample_fraction);
+
+  return rc;
+}
