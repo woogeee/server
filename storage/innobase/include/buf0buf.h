@@ -714,22 +714,24 @@ buf_page_is_checksum_valid_none(
 	ulint				checksum_field2)
 	MY_ATTRIBUTE((nonnull(1), warn_unused_result));
 
+/** Checks if the page is in full crc32 checksum format.
+@param[in]	read_buf	database page
+@param[in]	checksum_field	checksum field
+@return true if the page is in full crc32 checksum format */
+bool buf_page_is_checksum_valid_full_crc32(
+	const byte*	read_buf,
+	ulint		checksum_field);
+
 /** Check if a page is corrupt.
 @param[in]	check_lsn	whether the LSN should be checked
 @param[in]	read_buf	database page
-@param[in]	zip_size	ROW_FORMAT=COMPRESSED page size, or 0
-@param[in]	space		tablespace
+@param[in]	fsp_flags	tablespace flags
 @return whether the page is corrupted */
 bool
 buf_page_is_corrupted(
 	bool			check_lsn,
 	const byte*		read_buf,
-	ulint			zip_size,
-#ifndef UNIV_INNOCHECKSUM
-	const fil_space_t* 	space = NULL)
-#else
-	const void* 	 	space = NULL)
-#endif
+	ulint			fsp_flags)
 	MY_ATTRIBUTE((warn_unused_result));
 
 #ifndef UNIV_INNOCHECKSUM
@@ -1374,6 +1376,15 @@ ulint
 buf_pool_size_align(
 	ulint	size);
 
+/** Verify that post encryption checksum match with the calculated checksum.
+This function should be called only if tablespace contains crypt data metadata.
+@param[in]	page		page frame
+@param[in]	fsp_flags	tablespace flags
+@return true if page is encrypted and OK, false otherwise */
+bool buf_page_verify_crypt_checksum(
+	const byte*	page,
+	ulint		fsp_flags);
+
 /** Calculate the checksum of a page from compressed table and update the
 page.
 @param[in,out]	page	page to update
@@ -1394,7 +1405,7 @@ a page is written to disk.
 (may be src_frame or an encrypted/compressed copy of it) */
 UNIV_INTERN
 byte*
-buf_page_encrypt_before_write(
+buf_page_encrypt(
 	fil_space_t*	space,
 	buf_page_t*	bpage,
 	byte*		src_frame);

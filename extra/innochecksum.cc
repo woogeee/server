@@ -429,19 +429,16 @@ ulint read_file(
 
 /** Check if page is corrupted or not.
 @param[in]	buf		page frame
-@param[in]	zip_size	ROW_FORMAT=COMPRESSED page size, or 0
 @param[in]	is_encrypted	true if page0 contained cryp_data
 				with crypt_scheme encrypted
-@param[in]	is_compressed	true if page0 fsp_flags contained
-				page compression flag
+@param[in]	flags		tablespace flags
 @retval true if page is corrupted otherwise false. */
 static
 bool
 is_page_corrupted(
 	byte*		buf,
-	ulint		zip_size,
 	bool		is_encrypted,
-	bool		is_compressed)
+	ulint		flags)
 {
 
 	/* enable if page is corrupted. */
@@ -453,6 +450,19 @@ is_page_corrupted(
 	uint key_version = mach_read_from_4(buf+FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION);
 	ulint space_id = mach_read_from_4(
 		buf + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
+	ulint zip_size = 0;
+	ulint is_compressed = false;
+
+	if (FSP_FLAGS_FCHKSUM_HAS_MARKER(flags)) {
+		is_compressed = FSP_FLAGS_FCHKSUM_GET_COMPRESSED_ALGO(flags);
+	} else {
+		zip_size = FSP_FLAGS_GET_ZIP_SSIZE(flags);
+		if (zip_size) {
+			zip_size = (UNIV_ZIP_SIZE_MIN >> 1) << zip_size;
+		}
+
+		is_compressed = FSP_FLAGS_HAS_PAGE_COMPRESSION(flags);
+	}
 
 	/* We can't trust only a page type, thus we take account
 	also fsp_flags or crypt_data on page 0 */
@@ -513,8 +523,7 @@ is_page_corrupted(
 	}
 
 	if (is_corrupted) {
-		is_corrupted = buf_page_is_corrupted(
-			true, buf, zip_size, NULL);
+		is_corrupted = buf_page_is_corrupted(true, buf, flags);
 	}
 
 	return(is_corrupted);
@@ -1418,28 +1427,23 @@ static bool check_encryption(const char* filename, const byte* page)
 	return (type == CRYPT_SCHEME_1);
 }
 
-/**
-Verify page checksum.
+/** Verify page checksum.
 @param[in] buf			page to verify
 @param[in] zip_size		ROW_FORMAT=COMPRESSED page size, or 0
 @param[in] is_encrypted		true if tablespace is encrypted
-@param[in] is_compressed	true if tablespace is page compressed
 @param[in,out] mismatch_count	Number of pages failed in checksum verify
-@retval 0 if page checksum matches or 1 if it does not match
-*/
-static
-int verify_checksum(
-	byte* buf,
-	ulint zip_size,
-	bool is_encrypted,
-	bool is_compressed,
-	unsigned long long* mismatch_count)
+@param[in]	flags		tablespace flags
+@retval 0 if page checksum matches or 1 if it does not match */
+static int verify_checksum(
+	byte*			buf,
+	bool			is_encrypted,
+	unsigned long long*	mismatch_count,
+	ulint			flags)
 {
 	int exit_status = 0;
 	bool is_corrupted = false;
 
-	is_corrupted = is_page_corrupted(
-		buf, zip_size, is_encrypted, is_compressed);
+	is_corrupted = is_page_corrupted(buf, is_encrypted, flags);
 
 	if (is_corrupted) {
 		fprintf(stderr, "Fail: page::%llu invalid\n",
@@ -1702,7 +1706,8 @@ int main(
 			unsigned long long tmp_allow_mismatches = allow_mismatches;
 			allow_mismatches = 0;
 
-			exit_status = verify_checksum(buf, zip_size, is_encrypted, is_compressed, &mismatch_count);
+			exit_status = verify_checksum(buf, is_encrypted,
+						      &mismatch_count, flags);
 
 			if (exit_status) {
 				fprintf(stderr, "Error: Page 0 checksum mismatch, can't continue. \n");
@@ -1878,8 +1883,9 @@ int main(
 			checksum verification.*/
 			if (!no_check
 			    && !skip_page
-			    && (exit_status = verify_checksum(buf, zip_size,
-					    is_encrypted, is_compressed, &mismatch_count))) {
+			    && (exit_status = verify_checksum(
+						buf, is_encrypted,
+						&mismatch_count, flags))) {
 				goto my_exit;
 			}
 

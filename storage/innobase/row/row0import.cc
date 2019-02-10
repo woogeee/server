@@ -2000,11 +2000,13 @@ dberr_t PageConverter::operator()(buf_block_t* block) UNIV_NOTHROW
 
 	if (!block->page.zip.data) {
 		buf_flush_init_for_writing(
-			NULL, block->frame, NULL, m_current_lsn);
+			NULL, block->frame, NULL, m_current_lsn,
+			fil_space_t::use_full_checksum(get_space_flags()));
 	} else if (fil_page_type_is_index(page_type)) {
 		buf_flush_init_for_writing(
 			NULL, block->page.zip.data, &block->page.zip,
-			m_current_lsn);
+			m_current_lsn,
+			fil_space_t::use_full_checksum(get_space_flags()));
 	} else {
 		/* Calculate and update the checksum of non-index
 		pages for ROW_FORMAT=COMPRESSED tables. */
@@ -3429,7 +3431,7 @@ not_encrypted:
 					   false,
 					   encrypted && !frame_changed
 					   ? dst : src,
-					   callback.get_zip_size(), NULL)) {
+					   callback.get_space_flags())) {
 				goto page_corrupted;
 			}
 
@@ -3490,7 +3492,12 @@ not_encrypted:
 					    page_compress_buf,
 					    0,/* FIXME: compression level */
 					    512,/* FIXME: proper block size */
-					    encrypted)) {
+					    encrypted
+#ifdef UNIV_DEBUG
+					    ,callback.get_space_flags())) {
+#else
+					    )) {
+#endif
 					/* FIXME: remove memcpy() */
 					memcpy(src, page_compress_buf, len);
 					memset(src + len, 0,
@@ -3506,7 +3513,9 @@ not_encrypted:
 					block->page.id.space(),
 					block->page.id.page_no(),
 					mach_read_from_8(src + FIL_PAGE_LSN),
-					src, block->zip_size(), dest);
+					src, block->zip_size(), dest,
+					fil_space_t::use_full_checksum(
+						callback.get_space_flags()));
 
 				if (tmp == src) {
 					/* TODO: remove unnecessary memcpy's */
