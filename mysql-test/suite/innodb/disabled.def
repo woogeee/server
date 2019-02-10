@@ -11,3 +11,7 @@
 ##############################################################################
 
 create-index-debug : MDEV-13680 InnoDB may crash when btr_page_alloc() fails
+doublewrite : Changes the checksum value in test case
+alter_flags : Changes the checksum value in test case
+table_flags : Table flags behaviour should be consistent
+innodb-wl5522 : Table flags behaviour during import stmt
