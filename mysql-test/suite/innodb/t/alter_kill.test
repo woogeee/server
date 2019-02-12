@@ -50,6 +50,7 @@ my $file = "$ENV{MYSQLD_DATADIR}/test/bug16720368.ibd";
 open(FILE, "+<$file") || die "Unable to open $file";
 print FILE pack("H*","deadbeefc001cafe") || die "Unable to write $file";
 seek(FILE, $ENV{PAGE_SIZE}-8, 0) || die "Unable to seek $file";
+
 print FILE pack("H*","deadbeef") || die "Unable to write $file";
 close(FILE) || die "Unable to close $file";
 EOF
