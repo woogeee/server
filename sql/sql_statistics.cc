@@ -2798,7 +2798,8 @@ int collect_statistics_for_table(THD *thd, TABLE *table)
   if (!rc)
   {
     table->collected_stats->cardinality_is_null= FALSE;
-    table->collected_stats->cardinality= rows / sample_fraction;
+    table->collected_stats->cardinality=
+      static_cast<ha_rows>(rows / sample_fraction);
   }
 
   bitmap_clear_all(table->write_set);
