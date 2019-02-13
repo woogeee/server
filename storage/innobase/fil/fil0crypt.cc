@@ -795,7 +795,7 @@ fil_space_encrypt(
 		mach_write_to_8(src_frame + FIL_PAGE_LSN, lsn);
 		mach_write_to_4(
 			src_frame + srv_page_size - FIL_PAGE_FCHKSUM_END_LSN,
-			lsn);
+			(ulint) lsn);
 	}
 
 	byte* tmp = fil_encrypt_buf(crypt_data, space->id, offset, lsn,

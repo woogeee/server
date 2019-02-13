@@ -2007,7 +2007,7 @@ dberr_t PageConverter::operator()(buf_block_t* block) UNIV_NOTHROW
 			mach_write_to_8(page + FIL_PAGE_LSN, m_current_lsn);
 			mach_write_to_4(
 				page + srv_page_size - FIL_PAGE_FCHKSUM_END_LSN,
-				m_current_lsn);
+				(ulint) m_current_lsn);
 			return err;
 		}
 
